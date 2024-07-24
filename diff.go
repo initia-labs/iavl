@@ -37,12 +37,28 @@ func (ndb *nodeDB) extractStateChanges(prevVersion int64, prevRoot, root []byte,
 		sharedNode *Node
 		// record the newly added leaf nodes during the traversal to the `sharedNode`,
 		// will be compared with found orphaned nodes to produce change set stream.
-		newLeaves []*Node
+		newLeaves        []*Node
+		newInternalNodes []*Node
 	)
 
 	// consumeNewLeaves concumes remaining `newLeaves` nodes and produce insertion `KVPair`.
 	consumeNewLeaves := func() error {
 		for _, node := range newLeaves {
+			if err := receiver(&KVPair{
+				Key:   node.key,
+				Value: node.value,
+			}); err != nil {
+				return err
+			}
+		}
+
+		newLeaves = newLeaves[:0]
+		return nil
+	}
+
+	// consumeNewLeaves concumes remaining `newLeaves` nodes and produce insertion `KVPair`.
+	consumeNewInternalNodes := func() error {
+		for _, node := range newInternalNodes {
 			if err := receiver(&KVPair{
 				Key:   node.key,
 				Value: node.value,
@@ -73,6 +89,8 @@ func (ndb *nodeDB) extractStateChanges(prevVersion int64, prevRoot, root []byte,
 				break
 			} else if node.isLeaf() {
 				newLeaves = append(newLeaves, node)
+			} else {
+				newInternalNodes = append(newInternalNodes, node)
 			}
 		}
 
@@ -142,6 +160,10 @@ func (ndb *nodeDB) extractStateChanges(prevVersion int64, prevRoot, root []byte,
 	}
 
 	if err := consumeNewLeaves(); err != nil {
+		return err
+	}
+
+	if err := consumeNewInternalNodes(); err != nil {
 		return err
 	}
 

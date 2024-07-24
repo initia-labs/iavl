@@ -15,6 +15,8 @@ import (
 
 	"github.com/cosmos/iavl"
 	idbm "github.com/cosmos/iavl/db"
+
+	"github.com/cosmos/iavl/proto"
 )
 
 // TODO: make this configurable?
@@ -24,7 +26,7 @@ const (
 
 func main() {
 	args := os.Args[1:]
-	if len(args) < 3 || (args[0] != "data" && args[0] != "shape" && args[0] != "versions") {
+	if len(args) < 3 || (args[0] != "data" && args[0] != "shape" && args[0] != "versions" && args[0] != "changeset") {
 		fmt.Fprintln(os.Stderr, "Usage: iaviewer <data|shape|versions> <leveldb dir> <prefix> [version number]")
 		fmt.Fprintln(os.Stderr, "<prefix> is the prefix of db, and the iavl tree of different modules in cosmos-sdk uses ")
 		fmt.Fprintln(os.Stderr, "different <prefix> to identify, just like \"s/k:gov/\" represents the prefix of gov module")
@@ -32,9 +34,19 @@ func main() {
 	}
 
 	version := 0
-	if len(args) == 4 {
-		var err error
+	var err error
+
+	if len(args) >= 4 {
 		version, err = strconv.Atoi(args[3])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid version number: %s\n", err)
+			os.Exit(1)
+		}
+	}
+
+	diffVersion := 0
+	if len(args) >= 5 {
+		diffVersion, err = strconv.Atoi(args[4])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Invalid version number: %s\n", err)
 			os.Exit(1)
@@ -57,6 +69,8 @@ func main() {
 		PrintShape(tree)
 	case "versions":
 		PrintVersions(tree)
+	case "changeset":
+		PrintChangeSet(tree, diffVersion)
 	}
 }
 
@@ -136,6 +150,19 @@ func PrintKeys(tree *iavl.MutableTree) {
 		digest := sha256.Sum256(value)
 		fmt.Printf("  %s\n    %X\n", printKey, digest)
 		return false
+	})
+}
+
+func PrintChangeSet(tree *iavl.MutableTree, diffVersion int) {
+	tree.TraverseSeparateStateChanges(int64(diffVersion), tree.Version(), func(pair *proto.KVPair) error {
+		printKey := parseWeaveKey(pair.Key)
+		if pair.Value != nil {
+			digest := sha256.Sum256(pair.Value)
+			fmt.Printf("  leaf - %s\n    %X\n", printKey, digest)
+		} else {
+			fmt.Printf("  internal - %s\n", printKey)
+		}
+		return nil
 	})
 }
 

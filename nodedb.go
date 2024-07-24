@@ -1184,6 +1184,39 @@ func (ndb *nodeDB) traverseStateChanges(startVersion, endVersion int64, fn func(
 	return nil
 }
 
+func (ndb *nodeDB) traverseSeperateStateChanges(startVersion, endVersion int64, fn func(pair *KVPair) error) error {
+	firstVersion, err := ndb.getFirstVersion()
+	if err != nil {
+		return err
+	}
+	if startVersion < firstVersion {
+		startVersion = firstVersion
+	}
+	latestVersion, err := ndb.getLatestVersion()
+	if err != nil {
+		return err
+	}
+	if endVersion > latestVersion {
+		endVersion = latestVersion
+	}
+
+	prevVersion := startVersion
+	prevRoot, err := ndb.GetRoot(prevVersion)
+	if err != nil && err != ErrVersionDoesNotExist {
+		return err
+	}
+
+	root, err := ndb.GetRoot(endVersion)
+	if err != nil {
+		return err
+	}
+
+	if err := ndb.extractStateChanges(prevVersion, prevRoot, root, fn); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (ndb *nodeDB) String() (string, error) {
 	buf := bufPool.Get().(*bytes.Buffer)
 	defer bufPool.Put(buf)
