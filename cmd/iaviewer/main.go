@@ -138,8 +138,7 @@ func ReadTree(dir string, version int, prefix []byte) (*iavl.MutableTree, error)
 	}
 
 	tree := iavl.NewMutableTree(idbm.NewWrapper(db), DefaultCacheSize, false, log.NewLogger(os.Stdout))
-	ver, err := tree.LoadVersion(int64(version))
-	fmt.Printf("Got version: %d\n", ver)
+	_, err = tree.LoadVersion(int64(version))
 	return tree, err
 }
 
@@ -154,16 +153,22 @@ func PrintKeys(tree *iavl.MutableTree) {
 }
 
 func PrintChangeSet(tree *iavl.MutableTree, diffVersion int) {
+	leafCount := 0
+	internalCount := 0
 	tree.TraverseSeparateStateChanges(int64(diffVersion), tree.Version(), func(pair *proto.KVPair) error {
 		printKey := parseWeaveKey(pair.Key)
 		if pair.Value != nil {
 			digest := sha256.Sum256(pair.Value)
 			fmt.Printf("  leaf - %s\n    %X\n", printKey, digest)
+			leafCount++
 		} else {
 			fmt.Printf("  internal - %s\n", printKey)
+			internalCount++
 		}
 		return nil
 	})
+	fmt.Printf("Leaf nodes: %d\n", leafCount)
+	fmt.Printf("Internal nodes: %d\n", internalCount)
 }
 
 // parseWeaveKey assumes a separating : where all in front should be ascii,
