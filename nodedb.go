@@ -36,7 +36,7 @@ const (
 	// Using semantic versioning: https://semver.org/
 	defaultStorageVersionValue = "1.0.0"
 	fastStorageVersionValue    = "1.1.0"
-	fastNodeCacheSize          = 100000
+	fastNodeCacheSize          = 500000
 
 	// This is used to avoid the case which pruning blocks the main process.
 	deleteBatchCount    = 1000
