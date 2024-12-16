@@ -609,6 +609,9 @@ func (tree *MutableTree) enableFastStorageAndCommit() error {
 		return err
 	}
 
+	// remove the unsaved fast nodes for the  higher versions than the latest version
+	tree.ndb.unsavedChanges.RemoveVersionsAbove(latestVersion)
+
 	return tree.ndb.Commit()
 }
 
@@ -781,6 +784,11 @@ func (tree *MutableTree) saveFastNodeVersion(latestVersion int64) error {
 	if err := tree.saveFastNodeRemovals(); err != nil {
 		return err
 	}
+
+	// save unsaved changes
+	tree.ndb.unsavedChanges.SaveVersion(latestVersion, tree.unsavedFastNodeAdditions, tree.unsavedFastNodeRemovals)
+	go tree.ndb.clearUnsavedChanges()
+
 	return tree.ndb.SetFastStorageVersionToBatch(latestVersion)
 }
 

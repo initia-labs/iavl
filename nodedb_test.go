@@ -437,3 +437,22 @@ func TestDeleteVersionsFromNoDeadlock(t *testing.T) {
 	require.Error(t, err, "")
 	require.Contains(t, err.Error(), fmt.Sprintf("unable to delete version %v with 2 active readers", targetVersion+2))
 }
+
+func TestFastStorageGetLatestVersionFromDB(t *testing.T) {
+	db := dbm.NewMemDB()
+	ndb := newNodeDB(db, 0, DefaultOptions(), log.NewNopLogger())
+	err := ndb.SetFastStorageVersionToBatch(100)
+	require.NoError(t, err)
+
+	// before commit; it should return 0
+	latestVersion, err := ndb.getFastStorageLatestVersionFromDB()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), latestVersion)
+
+	ndb.Commit()
+
+	// after commit; it should return 100
+	latestVersion, err = ndb.getFastStorageLatestVersionFromDB()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), latestVersion)
+}

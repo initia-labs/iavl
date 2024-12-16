@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"cosmossdk.io/log"
 	"github.com/cosmos/iavl/fastnode"
@@ -35,6 +36,12 @@ var (
 
 func setupMutableTree(skipFastStorageUpgrade bool) *MutableTree {
 	memDB := dbm.NewMemDB()
+	tree := NewMutableTree(memDB, 0, skipFastStorageUpgrade, log.NewNopLogger())
+	return tree
+}
+
+func setupMutableTreeWithDelayedDB(skipFastStorageUpgrade bool, delay time.Duration) *MutableTree {
+	memDB := dbm.NewDelayedMemDB(delay)
 	tree := NewMutableTree(memDB, 0, skipFastStorageUpgrade, log.NewNopLogger())
 	return tree
 }
@@ -1449,4 +1456,80 @@ func TestMutableTreeClose(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, tree.Close())
+}
+
+func TestMutableTree_SetRemove_SaveVersion(t *testing.T) {
+	tree := setupMutableTreeWithDelayedDB(false, 1*time.Second)
+
+	// set root
+	isUpdated, err := tree.Set([]byte("root"), []byte("root"))
+	require.NoError(t, err)
+	require.False(t, isUpdated)
+
+	// save version would take 1 second to write to db
+	_, _, err = tree.SaveVersion()
+	require.NoError(t, err)
+
+	// wait for 1 second
+	time.Sleep(1 * time.Second)
+
+	const testKey1 = "a"
+	const testVal1 = "test"
+
+	// Set 1
+	isUpdated, err = tree.Set([]byte(testKey1), []byte(testVal1))
+	require.NoError(t, err)
+	require.False(t, isUpdated)
+
+	fastValue, err := tree.Get([]byte(testKey1))
+	require.NoError(t, err)
+	_, regularValue, err := tree.GetWithIndex([]byte(testKey1))
+	require.NoError(t, err)
+	require.Equal(t, []byte(testVal1), fastValue)
+	require.Equal(t, []byte(testVal1), regularValue)
+
+	fastNodeAdditions := tree.getUnsavedFastNodeAdditions()
+	require.Equal(t, 1, len(fastNodeAdditions))
+
+	fastNodeAddition := fastNodeAdditions[testKey1]
+	require.Equal(t, []byte(testKey1), fastNodeAddition.GetKey())
+	require.Equal(t, []byte(testVal1), fastNodeAddition.GetValue())
+	require.Equal(t, int64(2), fastNodeAddition.GetVersionLastUpdatedAt())
+
+	// save version would take 1 second to write to db
+	_, _, err = tree.SaveVersion()
+	require.NoError(t, err)
+
+	// wait for 1 second
+	time.Sleep(1 * time.Second)
+
+	// Remove
+	removedVal, isRemoved, err := tree.Remove([]byte(testKey1))
+	require.NoError(t, err)
+	require.NotNil(t, removedVal)
+	require.True(t, isRemoved)
+
+	fastNodeAdditions = tree.getUnsavedFastNodeAdditions()
+	require.Equal(t, 0, len(fastNodeAdditions))
+
+	fastNodeRemovals := tree.getUnsavedFastNodeRemovals()
+	require.Equal(t, 1, len(fastNodeRemovals))
+
+	fastValue, err = tree.Get([]byte(testKey1))
+	require.NoError(t, err)
+	_, regularValue, err = tree.GetWithIndex([]byte(testKey1))
+	require.NoError(t, err)
+	require.Nil(t, fastValue)
+	require.Nil(t, regularValue)
+
+	// save version would take 1 second to write to db
+	_, _, err = tree.SaveVersion()
+	require.NoError(t, err)
+
+	fastValue, err = tree.Get([]byte(testKey1))
+	require.NoError(t, err)
+	_, regularValue, err = tree.GetWithIndex([]byte(testKey1))
+	require.NoError(t, err)
+	require.Nil(t, fastValue)
+	require.Nil(t, regularValue)
 }

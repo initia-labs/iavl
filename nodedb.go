@@ -19,6 +19,7 @@ import (
 	"github.com/cosmos/iavl/fastnode"
 	ibytes "github.com/cosmos/iavl/internal/bytes"
 	"github.com/cosmos/iavl/keyformat"
+	"github.com/cosmos/iavl/vcache"
 )
 
 const (
@@ -36,7 +37,7 @@ const (
 	// Using semantic versioning: https://semver.org/
 	defaultStorageVersionValue = "1.0.0"
 	fastStorageVersionValue    = "1.1.0"
-	fastNodeCacheSize          = 500000
+	fastNodeCacheSize          = 100000
 
 	// This is used to avoid the case which pruning blocks the main process.
 	deleteBatchCount    = 1000
@@ -90,6 +91,20 @@ type nodeDB struct {
 	legacyLatestVersion int64            // Latest version of nodeDB in legacy format.
 	nodeCache           cache.Cache      // Cache for nodes in the regular tree that consists of key-value pairs at any version.
 	fastNodeCache       cache.Cache      // Cache for nodes in the fast index that represents only key-value pairs at the latest version.
+
+	// FastStorage currently relies on `nodeCache` and `batch.Write()` to persist fast nodes.
+	// However, the cache cannot properly handle fast nodes as it wasn't designed for this purpose.
+	// 1) During a `batch.Write()` operation, if a value is removed, a value removed from the cache.
+	// 	  A cache miss triggers a fetch from `ndb.db`. This returns the removed value incorrectly
+	//    because the database hasn't been updated yet.
+	//
+	// 2) During a `batch.Write()` operation, if a value is added and the cache overflows,
+	//    the cache evicts the value. When fetching from `ndb.db`, it returns nil because
+	//    the database hasn't been updated yet, despite the value being added.
+	//
+	// To resolve these issues, we introduce a cache: keep latest changes in the cache until
+	// `batch.Write()` completes. These ensure proper value retrieval for fast nodes.
+	unsavedChanges *vcache.VersionedCache
 }
 
 func newNodeDB(db dbm.DB, cacheSize int, opts Options, lg log.Logger) *nodeDB {
@@ -111,6 +126,8 @@ func newNodeDB(db dbm.DB, cacheSize int, opts Options, lg log.Logger) *nodeDB {
 		fastNodeCache:       cache.New(fastNodeCacheSize),
 		versionReaders:      make(map[int64]uint32, 8),
 		storageVersion:      string(storeVersion),
+
+		unsavedChanges: vcache.NewVersionedCache(),
 	}
 }
 
@@ -186,6 +203,15 @@ func (ndb *nodeDB) GetFastNode(key []byte) (*fastnode.Node, error) {
 	}
 
 	ndb.opts.Stat.IncFastCacheMissCnt()
+
+	// Check the unsaved caches.
+	if val, found := ndb.unsavedChanges.Get(ibytes.UnsafeBytesToStr(key)); found {
+		if val == nil {
+			return nil, nil
+		}
+
+		return val.(*fastnode.Node), nil
+	}
 
 	// Doesn't exist, load.
 	buf, err := ndb.db.Get(ndb.fastNodeKey(key))
@@ -1224,3 +1250,37 @@ func (ndb *nodeDB) String() (string, error) {
 }
 
 var ErrNodeMissingNodeKey = fmt.Errorf("node does not have a nodeKey")
+
+// clearUnsavedChanges check the latest version from the db and
+// prune the unsaved changes.
+func (ndb *nodeDB) clearUnsavedChanges() {
+	latestVersion, err := ndb.getFastStorageLatestVersionFromDB()
+	if err != nil {
+		return
+	}
+
+	// prune stored versions from unsaved changes
+	ndb.unsavedChanges.RemoveVersionsUpTo(latestVersion)
+}
+
+// getFastStorageLatestVersionFromDB lookup the latest version of the fast storage from the db.
+func (ndb *nodeDB) getFastStorageLatestVersionFromDB() (int64, error) {
+	storageVersionBz, err := ndb.db.Get(metadataKeyFormat.Key([]byte(storageVersionKey)))
+	if err != nil {
+		return 0, err
+	} else if storageVersionBz == nil {
+		return 0, nil
+	}
+
+	versions := strings.Split(string(storageVersionBz), fastStorageVersionDelimiter)
+	if len(versions) != 2 {
+		return 0, errInvalidFastStorageVersion
+	}
+
+	latestVersion, err := strconv.Atoi(versions[1])
+	if err != nil {
+		return 0, err
+	}
+
+	return int64(latestVersion), nil
+}
