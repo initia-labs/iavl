@@ -262,7 +262,7 @@ Orphaned: 6, 8
 Orphaned: 6
 ```
 
-Note: 6 got orphaned again, so omit list repitition
+Note: 6 got orphaned again, so omit list repetition
 
 #### Right Right Case
 
