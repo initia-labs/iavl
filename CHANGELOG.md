@@ -33,7 +33,7 @@
 
 - [#586](https://github.com/cosmos/iavl/pull/586) Remove the `RangeProof` and refactor the ics23_proof to use the internal methods.
 
-## 0.19.5 (Februrary 23, 2022)
+## 0.19.5 (February 23, 2022)
 
 ### Breaking Changes
 
