@@ -590,7 +590,7 @@ func (tree *MutableTree) enableFastStorageAndCommitIfNotEnabled() (bool, error) 
 	}
 
 	if err := tree.enableFastStorageAndCommit(); err != nil {
-		tree.ndb.storageVersion = defaultStorageVersionValue
+		tree.ndb.setStorageVersion(defaultStorageVersionValue)
 		return false, err
 	}
 	return true, nil

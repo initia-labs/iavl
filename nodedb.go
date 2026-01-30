@@ -335,7 +335,15 @@ func (ndb *nodeDB) SetFastStorageVersionToBatch(latestVersion int64) error {
 }
 
 func (ndb *nodeDB) getStorageVersion() string {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
 	return ndb.storageVersion
+}
+
+func (ndb *nodeDB) setStorageVersion(version string) {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	ndb.storageVersion = version
 }
 
 // Returns true if the upgrade to latest storage version has been performed, false otherwise.
@@ -348,7 +356,7 @@ func (ndb *nodeDB) hasUpgradedToFastStorage() bool {
 // We determine this by checking the version of the live state and the version of the live state when
 // latest storage was updated on disk the last time.
 func (ndb *nodeDB) shouldForceFastStorageUpgrade() (bool, error) {
-	versions := strings.Split(ndb.storageVersion, fastStorageVersionDelimiter)
+	versions := strings.Split(ndb.getStorageVersion(), fastStorageVersionDelimiter)
 
 	if len(versions) == 2 {
 		latestVersion, err := ndb.getLatestVersion()
